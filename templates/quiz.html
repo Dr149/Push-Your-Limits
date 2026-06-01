@@ -1,0 +1,10 @@
+{% extends "layout.html" %}
+{% block content %}
+<section class="section quiet-background">
+  <div class="quiz-header">
+    <h2>{{ quiz.title }}</h2>
+    <p>This quiz contains {{ quiz.questions|length }} questions. Answer each one and receive instant encouragement.</p>
+  </div>
+  <div id="quiz-container" data-quiz='{{ quiz|tojson }}'></div>
+</section>
+{% endblock %}

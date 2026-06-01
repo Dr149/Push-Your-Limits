@@ -1,0 +1,53 @@
+{% extends "layout.html" %}
+{% block content %}
+<section class="form-section">
+  <h2>Editor Dashboard</h2>
+  <div class="editor-grid">
+    <div class="editor-card">
+      <h3>Upload file</h3>
+      <form action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data" class="form-card">
+        <label>Title<input type="text" name="title" placeholder="Example: Cardio notes" /></label>
+        <label>File<input type="file" name="file" required /></label>
+        <button type="submit" class="button">Upload and generate quiz</button>
+      </form>
+    </div>
+    <div class="editor-card">
+      <h3>Add video</h3>
+      <form action="{{ url_for('add_video') }}" method="post" class="form-card">
+        <label>Video title<input type="text" name="title" required /></label>
+        <label>Video URL<input type="url" name="url" placeholder="https://" required /></label>
+        <button type="submit" class="button">Add video</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="section-heading">
+    <h3>Manage content</h3>
+    <p>Hide or reveal resources and previews as needed.</p>
+  </div>
+  <div class="card-grid">
+    {% for file in content.files %}
+    <article class="content-card">
+      <h4>{{ file.title }}</h4>
+      <p>File: {{ file.filename }}<br />Quiz ID: {{ file.quiz_id }}</p>
+      <a class="link-button" href="{{ url_for('toggle_visibility', section='files', item_id=file.id) }}">{{ 'Unhide' if file.hidden else 'Hide' }}</a>
+    </article>
+    {% endfor %}
+    {% for video in content.videos %}
+    <article class="content-card">
+      <h4>{{ video.title }}</h4>
+      <p>{{ video.url }}</p>
+      <a class="link-button" href="{{ url_for('toggle_visibility', section='videos', item_id=video.id) }}">{{ 'Unhide' if video.hidden else 'Hide' }}</a>
+    </article>
+    {% endfor %}
+    {% for quiz in content.quizzes %}
+    <article class="content-card">
+      <h4>{{ quiz.title }}</h4>
+      <p>Questions: {{ quiz.questions|length }}</p>
+      <a class="link-button" href="{{ url_for('quiz', quiz_id=quiz.id) }}">Open quiz</a>
+      <a class="link-button" href="{{ url_for('toggle_visibility', section='quizzes', item_id=quiz.id) }}">{{ 'Unhide' if quiz.hidden else 'Hide' }}</a>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

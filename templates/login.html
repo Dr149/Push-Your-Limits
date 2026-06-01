@@ -1,0 +1,12 @@
+{% extends "layout.html" %}
+{% block content %}
+<section class="form-section">
+  <h2>Editor Login</h2>
+  <form method="post" class="form-card">
+    <label>Username<input type="text" name="username" required /></label>
+    <label>Password<input type="password" name="password" required /></label>
+    <button type="submit" class="button">Sign in</button>
+  </form>
+  <p class="small-note">Need editor access? <a href="{{ url_for('request_access') }}">Request access</a>.</p>
+</section>
+{% endblock %}

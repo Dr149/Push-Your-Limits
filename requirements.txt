@@ -1,0 +1,7 @@
+Flask>=2.3
+Werkzeug>=3.0
+python-dotenv
+PyPDF2
+python-docx
+PyMuPDF
+python-pptx

@@ -1,0 +1,77 @@
+{% extends "layout.html" %}
+{% block content %}
+<section class="hero">
+  <div>
+    <h2>Build custom quizzes from your course files.</h2>
+    <p>Upload study material, extract images, and enjoy interactive quizzes designed for medical students.</p>
+    <a class="button" href="#files">Explore content</a>
+  </div>
+  <div class="hero-card">
+    <h3>Study with intention</h3>
+    <p>Everything is organized quietly for deep focus: files, videos, and self-check quizzes.</p>
+  </div>
+</section>
+
+<section id="files" class="section quiet-background">
+  <div class="section-heading">
+    <h3>Files</h3>
+    <p>Upload notes, slides, or documents and generate study questions automatically.</p>
+  </div>
+  <div class="card-grid">
+    {% for file in files %}
+    <article class="content-card">
+      <h4>{{ file.title }}</h4>
+      <p>{{ file.summary }}</p>
+      <p><strong>Type:</strong> {{ file.type.upper() }}</p>
+      {% if file.images %}
+      <div class="image-preview">
+        <img src="/uploads/images/{{ file.images[0] }}" alt="Extracted">
+      </div>
+      {% endif %}
+      <p><em>{{ file.images|length }} images extracted</em></p>
+      <p><strong>Quiz:</strong> <a href="{{ url_for('quiz', quiz_id=file.quiz_id) }}">Practice now</a></p>
+    </article>
+    {% endfor %}
+    {% if files|length == 0 %}
+    <p class="empty-state">No files uploaded yet. Log in as editor to add materials.</p>
+    {% endif %}
+  </div>
+</section>
+
+<section id="videos" class="section">
+  <div class="section-heading">
+    <h3>Videos</h3>
+    <p>Curated learning videos for review and concept reinforcement.</p>
+  </div>
+  <div class="card-grid">
+    {% for video in videos %}
+    <article class="content-card">
+      <h4>{{ video.title }}</h4>
+      <a class="link-button" href="{{ video.url }}" target="_blank">Watch video</a>
+    </article>
+    {% endfor %}
+    {% if videos|length == 0 %}
+    <p class="empty-state">No videos added yet. Use the editor panel to create guided media content.</p>
+    {% endif %}
+  </div>
+</section>
+
+<section id="quizzes" class="section quiet-background">
+  <div class="section-heading">
+    <h3>Quizzes</h3>
+    <p>Interactive practice with feedback after every question.</p>
+  </div>
+  <div class="card-grid">
+    {% for quiz in quizzes %}
+    <article class="content-card">
+      <h4>{{ quiz.title }}</h4>
+      <p><strong>Questions:</strong> {{ quiz.questions|length }}</p>
+      <a class="link-button" href="{{ url_for('quiz', quiz_id=quiz.id) }}">Start quiz</a>
+    </article>
+    {% endfor %}
+    {% if quizzes|length == 0 %}
+    <p class="empty-state">No quizzes are available yet. Upload a file to generate your first practice set.</p>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

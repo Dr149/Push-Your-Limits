@@ -1,224 +1,288 @@
-import streamlit as st
-import json
-import os
+import io
+import re
 
-# 1. Page Configuration & Quiet Study Theme Setup
+import streamlit as st
+
+try:
+    import docx
+except ImportError:
+    docx = None
+
+try:
+    from pptx import Presentation
+except ImportError:
+    Presentation = None
+
+try:
+    from PyPDF2 import PdfReader
+except ImportError:
+    PdfReader = None
+
+try:
+    import fitz
+except ImportError:
+    fitz = None
+
+ALLOWED_EXTENSIONS = ["pdf", "docx", "pptx", "txt", "png", "jpg", "jpeg"]
+
 st.set_page_config(
-    page_title="Push Your Limits | Medical Study Portal",
+    page_title="Push Your Limits",
     page_icon="🩺",
-    layout="wide"
+    layout="wide",
 )
 
-# Injecting Custom CSS for a calm, distraction-free medical student atmosphere
-st.markdown("""
+st.markdown(
+    """
     <style>
     .main { background-color: #f4f6f4; }
-    h1, h2, h3 { color: #2c4a3e; font-family: 'Georgia', serif; }
+    h1, h2, h3 { color: #2c4a3e; font-family: Georgia, serif; }
     .stButton>button {
         background-color: #3d6453;
         color: white;
-        border-radius: 6px;
+        border-radius: 8px;
         border: none;
-        padding: 0.5rem 1rem;
+        padding: 0.75rem 1rem;
     }
     .stButton>button:hover { background-color: #2c4a3e; color: white; }
-    .quiz-box {
-        background-color: white;
-        padding: 2rem;
-        border-radius: 8px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-        border-left: 5px solid #3d6453;
-    }
-    .success-text { color: #2e7d32; font-weight: bold; font-size: 1.2rem; }
+    .card { background: white; padding: 1.5rem; border-radius: 18px; box-shadow: 0 14px 30px rgba(0,0,0,0.06); margin-bottom: 1.5rem; }
+    .success-text { color: #2e7d32; font-weight: 700; }
     </style>
-""", unsafe_allowed_html=True)
+    """,
+    unsafe_allow_html=True,
+)
 
-# 2. Initialize Persistent Session States
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
-if "quiz_started" not in st.session_state:
-    st.session_state.quiz_started = False
-if "current_question" not in st.session_state:
-    st.session_state.current_question = 0
-if "score" not in st.session_state:
-    st.session_state.score = 0
-if "quiz_completed" not in st.session_state:
-    st.session_state.quiz_completed = False
+if "uploads" not in st.session_state:
+    st.session_state.uploads = []
+if "current_upload" not in st.session_state:
+    st.session_state.current_upload = None
+if "quiz_index" not in st.session_state:
+    st.session_state.quiz_index = 0
+if "quiz_score" not in st.session_state:
+    st.session_state.quiz_score = 0
+if "quiz_mode" not in st.session_state:
+    st.session_state.quiz_mode = False
 
-# Mock Database for Sample Data
-if "db_files" not in st.session_state:
-    st.session_state.db_files = ["Neuroanatomy_Core_Notes.pdf", "Hematology_Anemia_Algorithms.pdf"]
-if "db_videos" not in st.session_state:
-    st.session_state.db_videos = ["https://www.youtube.com/watch?v=sample1", "https://www.youtube.com/watch?v=sample2"]
 
-# Mock Quiz Database containing questions with image mappings
-SAMPLE_QUIZ = [
-    {
-        "question": "Identify the primary diagnostic indicator highlighted in the blood smear image below for Acute Myeloid Leukemia (AML).",
-        "options": ["Auer rods inside myeloblasts", "Hypersegmented neutrophils", "Target cells", "Reed-Sternberg cells"],
-        "answer": "Auer rods inside myeloblasts",
-        "image": "https://upload.wikimedia.org/wikipedia/commons/b/b5/Auer_rods.jpg",
-        "explanation": "Excellent! Auer rods are elongated, crystalline structures seen in the cytoplasm of myeloid leukemic blasts."
-    },
-    {
-        "question": "Which cranial nerve pathway is compromised if a patient presents with a loss of corneal reflex?",
-        "options": ["CN V (Trigeminal) afferent / CN VII (Facial) efferent", "CN II (Optic) / CN III (Oculomotor)", "CN VIII (Vestibulocochlear)", "CN IX (Glossopharyngeal)"],
-        "answer": "CN V (Trigeminal) afferent / CN VII (Facial) efferent",
-        "image": None,
-        "explanation": "Correct! The ophthalmic branch of the Trigeminal nerve handles the sensory input, while the Facial nerve handles the motor blink response."
+def allowed_file(filename):
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+def extract_text_from_pdf(file_bytes):
+    if not PdfReader:
+        return ""
+    try:
+        reader = PdfReader(io.BytesIO(file_bytes))
+        text = []
+        for page in reader.pages:
+            text.append(page.extract_text() or "")
+        return "\n".join(text).strip()
+    except Exception:
+        return ""
+
+
+def extract_text_from_docx(file_bytes):
+    if not docx:
+        return ""
+    try:
+        document = docx.Document(io.BytesIO(file_bytes))
+        return "\n".join([p.text for p in document.paragraphs if p.text.strip()])
+    except Exception:
+        return ""
+
+
+def extract_text_from_pptx(file_bytes):
+    if not Presentation:
+        return ""
+    try:
+        presentation = Presentation(io.BytesIO(file_bytes))
+        lines = []
+        for slide in presentation.slides:
+            for shape in slide.shapes:
+                if hasattr(shape, "text") and shape.text.strip():
+                    lines.append(shape.text.strip())
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+
+def extract_text_from_txt(file_bytes):
+    try:
+        return file_bytes.decode("utf-8", errors="ignore")
+    except Exception:
+        return ""
+
+
+def extract_images_from_pdf(file_bytes):
+    images = []
+    if not fitz:
+        return images
+    try:
+        doc = fitz.open(stream=file_bytes, filetype="pdf")
+        for page_index in range(len(doc)):
+            for img_info in doc.get_page_images(page_index):
+                xref = img_info[0]
+                image = doc.extract_image(xref)
+                images.append(image.get("image"))
+    except Exception:
+        pass
+    return images
+
+
+def summarize_text(text, limit=280):
+    sentences = re.split(r"(?<=[.!?])\s+", text)
+    summary = []
+    for sentence in sentences:
+        if sentence.strip():
+            summary.append(sentence.strip())
+            if len(summary) >= 3:
+                break
+    return " ".join(summary)[:limit]
+
+
+def generate_quiz_items(text):
+    questions = []
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if len(s.strip()) > 30]
+    for index, sentence in enumerate(sentences[:5], start=1):
+        words = re.findall(r"\b[A-Za-z]{4,}\b", sentence)
+        if len(words) < 3:
+            continue
+        answer = words[0]
+        distractors = [w for w in words[1:5] if w.lower() != answer.lower()][:3]
+        if len(distractors) < 3:
+            distractors = [f"Option {i}" for i in range(1, 4)]
+        choices = [answer] + distractors
+        questions.append({
+            "question": f"Which term best matches this concept?\n\n{sentence[:120].rstrip()}...",
+            "choices": choices,
+            "answer": answer,
+        })
+    return questions
+
+
+def process_uploaded_file(uploaded_file):
+    file_bytes = uploaded_file.read()
+    extension = uploaded_file.name.rsplit(".", 1)[-1].lower()
+    content = ""
+    images = []
+
+    if extension == "pdf":
+        content = extract_text_from_pdf(file_bytes)
+        images = extract_images_from_pdf(file_bytes)
+    elif extension == "docx":
+        content = extract_text_from_docx(file_bytes)
+    elif extension == "pptx":
+        content = extract_text_from_pptx(file_bytes)
+    elif extension == "txt":
+        content = extract_text_from_txt(file_bytes)
+    elif extension in ["png", "jpg", "jpeg"]:
+        images = [file_bytes]
+
+    quiz = generate_quiz_items(content)
+    summary = summarize_text(content or "Upload a supported study document to generate questions.")
+    return {
+        "name": uploaded_file.name,
+        "content": content,
+        "summary": summary,
+        "quiz": quiz,
+        "images": images,
     }
-]
 
-# 3. Header Architecture
 st.title("🩺 Push Your Limits")
-st.caption("A quiet, focused space for medical students to master high-yield concepts.")
+st.write("A calm medical study portal. Upload your own study files and generate quizzes from your material.")
 st.markdown("---")
 
-# 4. Sidebar Navigation & Admin Login Interface
 with st.sidebar:
-    st.header("Navigation")
-    app_mode = st.radio("Go to:", ["Files", "Videos", "Interactive Quizzes"])
-    
-    st.markdown("---")
-    st.header("Staff Portal")
-    
+    st.header("Editor Access")
     if not st.session_state.authenticated:
         with st.form("login_form"):
             username = st.text_input("Username")
             password = st.text_input("Password", type="password")
-            login_btn = st.form_submit_button("Login")
-            
-            if login_btn:
-                # Set your secure master administrative credentials here
-                if username == "admin" and password == "medstudent2026":
+            submitted = st.form_submit_button("Login")
+            if submitted:
+                if username == "admin" and password == "study2026":
                     st.session_state.authenticated = True
-                    st.rerun()
+                    st.success("Editor access granted.")
                 else:
-                    st.error("Invalid credentials.")
-        
-        st.markdown("### Access Request")
-        st.write("Need editing/upload access?")
-        with st.form("request_access"):
-            req_name = st.text_input("Your Full Name")
-            is_editor = st.checkbox("Request Editor Status")
-            submit_req = st.form_submit_button("Submit Application")
-            
-            if submit_req:
-                email_to = "luffy5656taro@gmail.com"
-                subject = f"Access Request from {req_name}"
-                body = f"Name: {req_name}%0D%0AWants to be Editor: {is_editor}"
-                mailto_link = f"mailto:{email_to}?subject={subject}&body={body}"
-                
-                st.markdown(f'<a href="{mailto_link}" target="_blank" style="text-decoration:none;"><button style="background-color:#3d6453;color:white;padding:0.5rem;border-radius:5px;border:none;cursor:pointer;width:100%;">Click to Open Email Client</button></a>', unsafe_allowed_html=True)
+                    st.error("Invalid username or password.")
+        st.markdown("---")
+        st.write("Need upload access? Send a request to the admin.")
+        if st.button("Request editor access"):
+            st.markdown(
+                "[Open email client](mailto:luffy5656taro@gmail.com?subject=Editor+Access+Request&body=Please+grant+me+editor+access.)"
+            )
     else:
-        st.success("Logged in as Editor")
-        if st.button("Logout Admin Mode"):
+        st.success("Logged in as editor")
+        if st.button("Logout"):
             st.session_state.authenticated = False
-            st.rerun()
+            st.experimental_rerun()
 
-# 5. Core Content Sections
-if app_mode == "Files":
-    st.header("📚 Extracted Resource Files")
-    st.write("Access high-yield documents and reference sheets below.")
-    
-    if st.session_state.authenticated:
-        st.info("⚡ Editor Control Activated")
-        new_file = st.file_uploader("Upload new lecture files (PDF/PPTX) for quiz processing", type=["pdf", "pptx", "docx"])
-        if new_file:
-            st.session_state.db_files.append(new_file.name)
-            st.success(f"Successfully processed and stored '{new_file.name}'!")
-            
-    for f in st.session_state.db_files:
-        col1, col2 = st.columns([4, 1])
-        col1.write(f"📄 {f}")
-        if col2.button("Download", key=f):
-            st.info("Downloading file resource...")
-        if st.session_state.authenticated:
-            if col2.button("Hide/Remove", key=f+"_hide"):
-                st.session_state.db_files.remove(f)
-                st.rerun()
-
-elif app_mode == "Videos":
-    st.header("🎥 Video Lecture Database")
-    st.write("Watch linked high-yield lecture videos.")
-    
-    if st.session_state.authenticated:
-        st.info("⚡ Editor Control Activated")
-        new_vid = st.text_input("Add Video URL Link (e.g., YouTube Link for @MedLectures01)")
-        if st.button("Add Video Source"):
-            if new_vid:
-                st.session_state.db_videos.append(new_vid)
-                st.success("Video lecture catalog updated!")
-                st.rerun()
-
-    for v in st.session_state.db_videos:
-        st.video("https://www.youtube.com/watch?v=dQw4w9WgXcQ") # Placeholder safe test video link
-        if st.session_state.authenticated:
-            if st.button("Delete Video Entry", key=v):
-                st.session_state.db_videos.remove(v)
-                st.rerun()
-
-elif app_mode == "Interactive Quizzes":
-    st.header("🧠 High-Yield Smart Quizzes")
-    st.write("Test your clinical knowledge. Quizzes automatically parse high-yield files and pull diagnostic imagery directly into corresponding questions.")
-    
-    total_q = len(SAMPLE_QUIZ)
-    
-    if not st.session_state.quiz_started and not st.session_state.quiz_completed:
-        st.write(f"This assessment contains **{total_q} questions** generated directly from uploaded clinical resources.")
-        if st.button("Begin Assessment"):
-            st.session_state.quiz_started = True
-            st.session_state.current_question = 0
-            st.session_state.score = 0
-            st.rerun()
-            
-    elif st.session_state.quiz_started and not st.session_state.quiz_completed:
-        q_idx = st.session_state.current_question
-        current_q = SAMPLE_QUIZ[q_idx]
-        
-        st.markdown(f"#### Question {q_idx + 1} of {total_q}")
-        
-        with st.container():
-            st.markdown(f"<div class='quiz-box'><strong>{current_q['question']}</strong></div>", unsafe_allowed_html=True)
-            
-            # Display image if extracted from the source file
-            if current_q["image"]:
-                st.image(current_q["image"], caption="Image reference extracted from source file", width=400)
-                
-            st.write("")
-            user_choice = st.radio("Select the correct diagnostic option:", current_q["options"], key=f"q_{q_idx}")
-            
-            if st.button("Submit Answer"):
-                if user_choice == current_q["answer"]:
-                    st.markdown(f"<p class='success-text'>🎉 Congratulations! Correct! </p>", unsafe_allowed_html=True)
-                    st.info(current_q["explanation"])
-                    st.session_state.score += 1
-                else:
-                    st.error(f"Incorrect. The expected answer was: {current_q['answer']}.")
-                    st.info(current_q["explanation"])
-                
-                if q_idx + 1 < total_q:
-                    st.session_state.current_question += 1
-                    st.button("Proceed to Next Question")
-                else:
-                    st.session_state.quiz_completed = True
-                    st.session_state.quiz_started = False
-                    st.button("View Final Evaluation")
-
-    elif st.session_state.quiz_completed:
-        st.balloons()
-        st.header("🏁 Examination Complete!")
-        final_score = st.session_state.score
-        pct = int((final_score / total_q) * 100)
-        
-        st.metric(label="Final Result Score", value=f"{final_score} / {total_q}", delta=f"{pct}% Proficiency")
-        
-        if pct >= 70:
-            st.success("Outstanding performance! You are mastering these clinical metrics.")
+if st.session_state.authenticated:
+    st.subheader("Upload your own study material")
+    uploaded_file = st.file_uploader(
+        "Choose a study file to upload:",
+        type=["pdf", "docx", "pptx", "txt", "png", "jpg", "jpeg"],
+    )
+    if uploaded_file:
+        if allowed_file(uploaded_file.name):
+            uploaded_data = process_uploaded_file(uploaded_file)
+            st.session_state.uploads.append(uploaded_data)
+            st.success(f"Uploaded {uploaded_file.name} successfully.")
         else:
-            st.warning("Good attempt. Review the resource files in the archive tab to reinforce these systems.")
+            st.error("This file type is not supported.")
+
+    if st.session_state.uploads:
+        st.markdown("---")
+        st.subheader("Uploaded files")
+        selected_name = st.selectbox("Choose an uploaded file", [u["name"] for u in st.session_state.uploads])
+        current = next(u for u in st.session_state.uploads if u["name"] == selected_name)
+        st.write(f"**Summary:** {current['summary']}")
+        if current["images"]:
+            st.image(current["images"][0], caption="Extracted image from file", use_column_width=True)
+        if current["quiz"]:
+            if st.button("Start quiz for this file"):
+                st.session_state.current_upload = current
+                st.session_state.quiz_index = 0
+                st.session_state.quiz_score = 0
+                st.session_state.quiz_mode = True
+
+    if st.session_state.quiz_mode and st.session_state.current_upload:
+        quiz = st.session_state.current_upload["quiz"]
+        if quiz and st.session_state.quiz_index < len(quiz):
+            question = quiz[st.session_state.quiz_index]
+            st.markdown(f"### Question {st.session_state.quiz_index + 1} of {len(quiz)}")
+            st.markdown(question["question"])
+            choice = st.radio("Select the best answer", question["choices"], key=st.session_state.quiz_index)
+            if st.button("Submit answer"):
+                if choice == question["answer"]:
+                    st.success("Correct! Great work.")
+                    st.session_state.quiz_score += 1
+                else:
+                    st.error(f"Incorrect. The correct answer is: {question['answer']}")
+                st.session_state.quiz_index += 1
+                st.experimental_rerun()
+        else:
+            st.balloons()
+            st.success("Quiz complete!")
+            total = len(st.session_state.current_upload["quiz"])
+            score = st.session_state.quiz_score
+            st.write(f"You answered {score} out of {total} correctly.")
+            st.write(f"Result: {int(score / total * 100)}%")
+            if st.button("Restart quiz"):
+                st.session_state.quiz_mode = False
+                st.session_state.current_upload = None
+                st.experimental_rerun()
+else:
+    st.warning("Editor login required to upload files and generate quizzes.")
+    st.write("Please use the sidebar login to access upload features.")
+
+
+    
+        
+        
+
+
             
-        if st.button("Restart Quiz Session"):
-            st.session_state.quiz_completed = False
-            st.session_state.quiz_started = False
-            st.rerun()
+
+

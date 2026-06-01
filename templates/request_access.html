@@ -1,0 +1,16 @@
+{% extends "layout.html" %}
+{% block content %}
+<section class="form-section quiet-background">
+  <h2>Request Editor Access</h2>
+  <form method="post" class="form-card">
+    <label>Full Name<input type="text" name="name" required /></label>
+    <label>Email (optional)<input type="email" name="email" /></label>
+    <label>Role<select name="role">
+      <option value="viewer">Viewer</option>
+      <option value="editor">Editor</option>
+    </select></label>
+    <button type="submit" class="button">Send Request</button>
+  </form>
+  <p class="small-note">Your request is sent to the site admin for approval.</p>
+</section>
+{% endblock %}
